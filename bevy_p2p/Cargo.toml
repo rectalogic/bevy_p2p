@@ -12,3 +12,4 @@ bevy = { workspace = true, features = [
 distributed-topic-tracker = "0.2.0"
 iroh = "0.92.0"
 iroh-gossip = "0.92.0"
+tokio = { version = "1", features = ["full"] }

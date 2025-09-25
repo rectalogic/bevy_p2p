@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use bevy_p2p::{Peer2PeerPlugin, PeerEvent, PeerReceiver, PeerSender};
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let mut app = App::new();
     app.add_plugins((
         DefaultPlugins,
@@ -11,18 +10,21 @@ async fn main() {
             initial_secret: b"bevy-secret".to_vec(),
         },
     ))
-    .add_systems(Update, update);
-    app.run();
+    .add_systems(Update, update)
+    .add_observer(click_send)
+    .run();
 }
 
-fn update(receiver: Res<PeerReceiver>, sender: Res<PeerSender>) -> Result<()> {
-    if let Some(Ok(event)) = receiver.recv() {
+fn update(receiver: Res<PeerReceiver>) -> Result<()> {
+    if let Some(Ok(event)) = receiver.try_recv() {
         dbg!(&event);
-        if let PeerEvent::NeighborUp(node_id) = event {
-            let mut data = b"welcome ".to_vec();
-            data.append(&mut node_id.to_vec());
-            sender.send(data)?;
-        }
     }
+    Ok(())
+}
+
+fn click_send(click: Trigger<Pointer<Click>>, sender: Res<PeerSender>) -> Result<()> {
+    info!("click send");
+    let data = b"welcome ".to_vec();
+    sender.send(data)?;
     Ok(())
 }

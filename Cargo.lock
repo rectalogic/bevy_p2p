@@ -1025,6 +1025,7 @@ dependencies = [
  "distributed-topic-tracker",
  "iroh",
  "iroh-gossip",
+ "tokio",
 ]
 
 [[package]]
