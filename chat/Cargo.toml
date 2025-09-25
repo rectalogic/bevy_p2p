@@ -1,0 +1,12 @@
+[package]
+name = "chat"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bevy_p2p = { path = "../bevy_p2p" }
+bevy = { workspace = true, features = [
+    "async_executor",
+    "bevy_log",
+] }
+tokio = { version = "1.47.1", features = ["full"] }

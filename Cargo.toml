@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = ["bevy_p2p", "chat"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+bevy = { version = "0.16.1", default-features = false }
