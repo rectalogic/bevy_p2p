@@ -6,7 +6,8 @@ use distributed_topic_tracker::{
     AutoDiscoveryGossip, GossipReceiver, GossipSender, RecordPublisher, TopicId,
 };
 use iroh::{Endpoint, protocol::Router};
-use iroh_gossip::{api::Event, net::Gossip};
+pub use iroh_gossip::api::Event as PeerEvent;
+use iroh_gossip::net::Gossip;
 
 pub struct Peer2PeerPlugin {
     pub topic: String,
@@ -20,6 +21,7 @@ impl Plugin for Peer2PeerPlugin {
             initial_secret: self.initial_secret.clone(),
         })
         .init_resource::<PeerReceiver>()
+        .init_resource::<PeerSender>()
         .add_systems(Startup, setup)
         .add_systems(Update, handle_setup_task);
     }
@@ -38,12 +40,14 @@ struct SetupTask(Task<Result<(Router, GossipSender, GossipReceiver)>>);
 #[allow(dead_code)]
 struct IrohRouter(Router);
 
-#[derive(Resource, Clone)]
-pub struct PeerSender(async_channel::Sender<Vec<u8>>);
+#[derive(Resource, Default, Clone)]
+pub struct PeerSender(Option<async_channel::Sender<Vec<u8>>>);
 
 impl PeerSender {
     pub fn send(&self, data: Vec<u8>) -> Result<()> {
-        self.0.send_blocking(data)?;
+        if let Some(ref sender) = self.0 {
+            sender.send_blocking(data)?;
+        }
         Ok(())
     }
 }
@@ -52,7 +56,7 @@ impl PeerSender {
 pub struct PeerReceiver(Option<GossipReceiver>);
 
 impl PeerReceiver {
-    pub fn recv(&self) -> Option<Result<Event>> {
+    pub fn recv(&self) -> Option<Result<PeerEvent>> {
         if let Some(ref receiver) = self.0 {
             if let Some(Some(result)) = block_on(future::poll_once(receiver.next())) {
                 match result {
@@ -98,6 +102,7 @@ fn handle_setup_task(
     mut commands: Commands,
     setup_task: Single<(Entity, &mut SetupTask)>,
     mut peer_receiver: ResMut<PeerReceiver>,
+    mut peer_sender: ResMut<PeerSender>,
 ) {
     let (entity, mut task) = setup_task.into_inner();
 
@@ -107,7 +112,7 @@ fn handle_setup_task(
                 commands.insert_resource(IrohRouter(router));
                 peer_receiver.0 = Some(gossip_receiver);
                 let (tx, rx) = async_channel::unbounded();
-                commands.insert_resource(PeerSender(tx));
+                peer_sender.0 = Some(tx);
                 AsyncComputeTaskPool::get()
                     .spawn::<Result<()>>(async move {
                         loop {

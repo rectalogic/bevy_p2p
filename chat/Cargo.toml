@@ -5,8 +5,5 @@ edition.workspace = true
 
 [dependencies]
 bevy_p2p = { path = "../bevy_p2p" }
-bevy = { workspace = true, features = [
-    "async_executor",
-    "bevy_log",
-] }
+bevy = { workspace = true, default-features=true }
 tokio = { version = "1.47.1", features = ["full"] }

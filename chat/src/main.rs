@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_p2p::{Peer2PeerPlugin, PeerReceiver};
+use bevy_p2p::{Peer2PeerPlugin, PeerEvent, PeerReceiver, PeerSender};
 
 #[tokio::main]
 async fn main() {
@@ -15,8 +15,14 @@ async fn main() {
     app.run();
 }
 
-fn update(receiver: Res<PeerReceiver>) {
+fn update(receiver: Res<PeerReceiver>, sender: Res<PeerSender>) -> Result<()> {
     if let Some(Ok(event)) = receiver.recv() {
-        dbg!(event);
+        dbg!(&event);
+        if let PeerEvent::NeighborUp(node_id) = event {
+            let mut data = b"welcome ".to_vec();
+            data.append(&mut node_id.to_vec());
+            sender.send(data)?;
+        }
     }
+    Ok(())
 }
