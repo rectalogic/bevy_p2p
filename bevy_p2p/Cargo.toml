@@ -9,7 +9,9 @@ bevy = { workspace = true, features = [
     "async_executor",
     "bevy_log",
 ] }
-distributed-topic-tracker = "0.2.0"
 iroh = "0.92.0"
 iroh-gossip = "0.92.0"
+nostr-sdk = "0.43.0"
+serde_json = "1.0.145"
+sha2 = "0.10.9"
 tokio = { version = "1", features = ["full"] }

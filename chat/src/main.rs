@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_p2p::{Peer2PeerPlugin, PeerEvent, PeerReceiver, PeerSender};
+use bevy_p2p::{Peer2PeerPlugin, PeerReceiver, PeerSender};
 
 fn main() {
     let mut app = App::new();
@@ -7,7 +7,7 @@ fn main() {
         DefaultPlugins,
         Peer2PeerPlugin {
             topic: "bevy-topic".into(),
-            initial_secret: b"bevy-secret".to_vec(),
+            relay_urls: vec!["wss://relay.damus.io".into(), "wss://nos.lol".into()],
         },
     ))
     .add_systems(Update, update)
@@ -22,7 +22,7 @@ fn update(receiver: Res<PeerReceiver>) -> Result<()> {
     Ok(())
 }
 
-fn click_send(click: Trigger<Pointer<Click>>, sender: Res<PeerSender>) -> Result<()> {
+fn click_send(_click: Trigger<Pointer<Click>>, sender: Res<PeerSender>) -> Result<()> {
     info!("click send");
     let data = b"welcome ".to_vec();
     sender.send(data)?;
