@@ -85,7 +85,7 @@ async fn peer_setup(
         .await;
 
     let endpoint = Endpoint::builder().discovery_n0().bind().await?;
-    endpoint.node_addr().initialized().await;
+    // endpoint.node_addr().initialized().await;
     tokio::task::spawn(nostr_announce(nostr_client.clone(), endpoint.node_id()));
 
     let gossip = Gossip::builder().spawn(endpoint.clone());

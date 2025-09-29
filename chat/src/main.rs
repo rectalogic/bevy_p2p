@@ -22,9 +22,14 @@ fn update(receiver: Res<PeerReceiver>) -> Result<()> {
     Ok(())
 }
 
-fn click_send(_click: Trigger<Pointer<Click>>, sender: Res<PeerSender>) -> Result<()> {
+fn click_send(click: Trigger<Pointer<Click>>, sender: Res<PeerSender>) -> Result<()> {
     info!("click send");
-    let data = b"welcome ".to_vec();
+    let mut data = b"welcome ".to_vec();
+    data.append(
+        &mut format!("{:?}", click.pointer_location.position)
+            .as_bytes()
+            .to_vec(),
+    );
     sender.send(data)?;
     Ok(())
 }
