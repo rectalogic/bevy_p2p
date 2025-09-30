@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_channel::TryRecvError;
 use bevy::{ecs::error::Result, prelude::*};
-use iroh::{Endpoint, NodeId, Watcher, protocol::Router};
+use iroh::{Endpoint, NodeId, protocol::Router};
 pub use iroh_gossip::api::Event as PeerEvent;
 use iroh_gossip::{
     api::{GossipReceiver, GossipSender},
@@ -27,10 +27,10 @@ impl Plugin for Peer2PeerPlugin {
     fn build(&self, app: &mut App) {
         let (send_tx, send_rx) = async_channel::unbounded();
         let (recv_tx, recv_rx) = async_channel::unbounded();
-        let topic_id = topic_id(&self.topic);
         let relay_urls = self.relay_urls.clone();
+        let topic = self.topic.clone();
         std::thread::spawn(move || {
-            peer_main(topic_id, &relay_urls, send_rx, recv_tx);
+            peer_main(topic, &relay_urls, send_rx, recv_tx);
         });
 
         app.insert_resource(PeerSender(send_tx))
@@ -72,9 +72,9 @@ fn topic_id(s: &str) -> TopicId {
 }
 
 async fn peer_setup(
-    topic_id: TopicId,
+    topic: String,
     relay_urls: &[String],
-) -> Result<(Router, GossipSender, GossipReceiver)> {
+) -> Result<(Client, Router, GossipSender, GossipReceiver)> {
     let nostr_client = Client::new(Keys::generate());
     for relay in relay_urls.iter() {
         nostr_client.add_relay(relay).await?;
@@ -85,27 +85,30 @@ async fn peer_setup(
         .await;
 
     let endpoint = Endpoint::builder().discovery_n0().bind().await?;
-    // endpoint.node_addr().initialized().await;
-    tokio::task::spawn(nostr_announce(nostr_client.clone(), endpoint.node_id()));
+    tokio::task::spawn(nostr_announce(
+        nostr_client.clone(),
+        topic.clone(),
+        endpoint.node_id(),
+    ));
 
     let gossip = Gossip::builder().spawn(endpoint.clone());
     let router = Router::builder(endpoint.clone())
         .accept(iroh_gossip::ALPN, gossip.clone())
         .spawn();
 
-    let topic = gossip.subscribe(topic_id, Vec::new()).await?;
-    let (gossip_sender, gossip_receiver) = topic.split();
+    let gossip_topic = gossip.subscribe(topic_id(&topic), Vec::new()).await?;
+    let (gossip_sender, gossip_receiver) = gossip_topic.split();
     tokio::task::spawn(nostr_discover(nostr_client.clone(), gossip_sender.clone()));
 
-    Ok((router, gossip_sender, gossip_receiver))
+    Ok((nostr_client, router, gossip_sender, gossip_receiver))
 }
 
-async fn nostr_announce(nostr_client: Client, node_id: NodeId) -> Result<()> {
+async fn nostr_announce(nostr_client: Client, topic: String, node_id: NodeId) -> Result<()> {
     let mut interval = tokio::time::interval(NOSTR_ANNOUNCEMENT_INTERVAL);
     let content = serde_json::to_string(&node_id)?;
     loop {
-        let builder = EventBuilder::new(Kind::Custom(NOSTR_PEER_ANNOUNCEMENT_KIND), &content);
-        //XXX add tags? .tags(tags); -- filter to iroh topic on nostr
+        let builder = EventBuilder::new(Kind::Custom(NOSTR_PEER_ANNOUNCEMENT_KIND), &content)
+            .tag(Tag::reference(topic.clone()));
 
         nostr_client.send_event_builder(builder).await?;
         println!("Announced {}", node_id.fmt_short());
@@ -113,12 +116,16 @@ async fn nostr_announce(nostr_client: Client, node_id: NodeId) -> Result<()> {
     }
 }
 
-async fn nostr_discover(nostr_client: Client, gossip_sender: GossipSender) -> Result<()> {
+async fn nostr_subscribe(nostr_client: &Client, topic: String) -> Result<SubscriptionId> {
     let filter = Filter::new()
         .kind(Kind::Custom(NOSTR_PEER_ANNOUNCEMENT_KIND))
+        .reference(topic)
         .since(Timestamp::now() - NOSTR_ANNOUNCEMENT_INTERVAL * 2);
 
-    nostr_client.subscribe(filter, None).await?;
+    Ok(nostr_client.subscribe(filter, None).await?.val)
+}
+
+async fn nostr_discover(nostr_client: Client, gossip_sender: GossipSender) -> Result<()> {
     nostr_client
         .handle_notifications(async |notification| {
             if let RelayPoolNotification::Event { event, .. } = notification
@@ -139,13 +146,13 @@ async fn nostr_discover(nostr_client: Client, gossip_sender: GossipSender) -> Re
 
 #[tokio::main]
 async fn peer_main(
-    topic_id: TopicId,
+    topic: String,
     relay_urls: &[String],
     rx: async_channel::Receiver<Vec<u8>>,
     tx: async_channel::Sender<Result<PeerEvent>>,
 ) {
-    match peer_setup(topic_id, relay_urls).await {
-        Ok((_router, gossip_sender, mut gossip_receiver)) => {
+    match peer_setup(topic.clone(), relay_urls).await {
+        Ok((nostr_client, _router, gossip_sender, mut gossip_receiver)) => {
             let mut set = JoinSet::new();
             set.spawn(async move {
                 loop {
@@ -157,12 +164,19 @@ async fn peer_main(
                 }
             });
             set.spawn(async move {
-                //XXX start/stop discovery task when we have neighbors
+                let mut subscription = nostr_subscribe(&nostr_client, topic.clone()).await.ok();
                 loop {
                     if let Some(result) = gossip_receiver.next().await
                         && let Err(e) = tx.send(result.map_err(BevyError::from)).await
                     {
                         warn!("Send failed: {e}");
+                    }
+                    if gossip_receiver.is_joined() {
+                        if let Some(subscription_id) = subscription.take() {
+                            nostr_client.unsubscribe(&subscription_id).await;
+                        }
+                    } else if subscription.is_none() {
+                        subscription = nostr_subscribe(&nostr_client, topic.clone()).await.ok();
                     }
                 }
             });
